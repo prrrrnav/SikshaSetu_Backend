@@ -165,80 +165,134 @@ const compressSlide = async (buffer, originalName) => {
   };
 };
 
+// const compressPDF = async (buffer, originalName) => {
+//   const ext = path.extname(originalName).toLowerCase();
+//   const baseName = path.basename(originalName, ext);
+//   const outputName = `${baseName}_${Date.now()}.pdf`;
+
+//   try {
+//     const pdfDoc = await PDFDocument.load(buffer);
+//     const pdfBytes = await pdfDoc.save({
+//       useObjectStreams: true,
+//       addDefaultPage: false,
+//       objectsPerTick: 50
+//     });
+
+//     const compressedBuffer = Buffer.from(pdfBytes);
+//     const targetMin = UPLOAD_LIMITS.DOCUMENT.targetSize.min;
+//     const targetMax = UPLOAD_LIMITS.DOCUMENT.targetSize.max;
+
+//     if (compressedBuffer.length >= targetMin && compressedBuffer.length <= targetMax) {
+//       return {
+//         buffer: compressedBuffer,
+//         filename: outputName,
+//         size: compressedBuffer.length,
+//         mimetype: 'application/pdf'
+//       };
+//     }
+
+//     if (compressedBuffer.length > targetMax) {
+//       return {
+//         buffer: compressedBuffer,
+//         filename: outputName,
+//         size: compressedBuffer.length,
+//         mimetype: 'application/pdf'
+//       };
+//     }
+
+//     return {
+//       buffer: compressedBuffer,
+//       filename: outputName,
+//       size: compressedBuffer.length,
+//       mimetype: 'application/pdf'
+//     };
+//   } catch (error) {
+//     return {
+//       buffer,
+//       filename: outputName,
+//       size: buffer.length,
+//       mimetype: 'application/pdf'
+//     };
+//   }
+// };
+
 const compressPDF = async (buffer, originalName) => {
-  const ext = path.extname(originalName).toLowerCase();
-  const baseName = path.basename(originalName, ext);
-  const outputName = `${baseName}_${Date.now()}.pdf`;
+  const tempInput = `/tmp/${Date.now()}_in.pdf`;
+  const tempOutput = `/tmp/${Date.now()}_out.pdf`;
+  const baseName = path.basename(originalName, '.pdf');
 
   try {
-    const pdfDoc = await PDFDocument.load(buffer);
-    const pdfBytes = await pdfDoc.save({
-      useObjectStreams: true,
-      addDefaultPage: false,
-      objectsPerTick: 50
-    });
+    await fs.writeFile(tempInput, buffer);
 
-    const compressedBuffer = Buffer.from(pdfBytes);
-    const targetMin = UPLOAD_LIMITS.DOCUMENT.targetSize.min;
-    const targetMax = UPLOAD_LIMITS.DOCUMENT.targetSize.max;
+    // Ghostscript command for "screen" quality (72 dpi) or "ebook" (150 dpi)
+    // screen is the smallest size; ebook is a good middle ground.
+    const gsCommand = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/screen -dNOPAUSE -dQUIET -dBATCH -sOutputFile=${tempOutput} ${tempInput}`;
+    
+    await execPromise(gsCommand);
 
-    if (compressedBuffer.length >= targetMin && compressedBuffer.length <= targetMax) {
-      return {
-        buffer: compressedBuffer,
-        filename: outputName,
-        size: compressedBuffer.length,
-        mimetype: 'application/pdf'
-      };
-    }
-
-    if (compressedBuffer.length > targetMax) {
-      return {
-        buffer: compressedBuffer,
-        filename: outputName,
-        size: compressedBuffer.length,
-        mimetype: 'application/pdf'
-      };
-    }
+    const compressedBuffer = await fs.readFile(tempOutput);
+    
+    // Cleanup
+    await Promise.all([fs.unlink(tempInput), fs.unlink(tempOutput)]);
 
     return {
       buffer: compressedBuffer,
-      filename: outputName,
+      filename: `${baseName}_${Date.now()}.pdf`,
       size: compressedBuffer.length,
       mimetype: 'application/pdf'
     };
   } catch (error) {
-    return {
-      buffer,
-      filename: outputName,
-      size: buffer.length,
-      mimetype: 'application/pdf'
-    };
+    console.error("PDF Compression Error:", error);
+    return { buffer, filename: originalName, size: buffer.length, mimetype: 'application/pdf' };
   }
 };
+
+// const compressDocument = async (buffer, originalName, mimetype) => {
+//   const ext = path.extname(originalName).toLowerCase();
+//   const baseName = path.basename(originalName, ext);
+//   const outputName = `${baseName}_${Date.now()}${ext}`;
+
+//   const targetMin = UPLOAD_LIMITS.DOCUMENT.targetSize.min;
+//   const targetMax = UPLOAD_LIMITS.DOCUMENT.targetSize.max;
+
+//   if (buffer.length >= targetMin && buffer.length <= targetMax) {
+//     return {
+//       buffer,
+//       filename: outputName,
+//       size: buffer.length,
+//       mimetype
+//     };
+//   }
+
+//   return {
+//     buffer,
+//     filename: outputName,
+//     size: buffer.length,
+//     mimetype
+//   };
+// };
+
+const zlib = require('zlib');
+const gzip = promisify(zlib.gzip);
 
 const compressDocument = async (buffer, originalName, mimetype) => {
   const ext = path.extname(originalName).toLowerCase();
   const baseName = path.basename(originalName, ext);
-  const outputName = `${baseName}_${Date.now()}${ext}`;
+  
+  try {
+    // For Office docs, we use Gzip to try and shave off extra bytes 
+    // though the gains here are usually smaller (5-10%)
+    const compressedBuffer = await gzip(buffer, { level: 9 });
 
-  const targetMin = UPLOAD_LIMITS.DOCUMENT.targetSize.min;
-  const targetMax = UPLOAD_LIMITS.DOCUMENT.targetSize.max;
-
-  if (buffer.length >= targetMin && buffer.length <= targetMax) {
     return {
-      buffer,
-      filename: outputName,
-      size: buffer.length,
+      buffer: compressedBuffer,
+      filename: `${baseName}_${Date.now()}${ext}`,
+      size: compressedBuffer.length,
       mimetype
     };
+  } catch (error) {
+    return { buffer, filename: originalName, size: buffer.length, mimetype };
   }
-
-  return {
-    buffer,
-    filename: outputName,
-    size: buffer.length,
-    mimetype
-  };
 };
 
 const compressAudio = async (buffer, originalName) => {
