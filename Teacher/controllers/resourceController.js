@@ -45,6 +45,8 @@ exports.uploadResource = async (req, res) => {
       'resources'
     );
 
+    console.log(`Final size in Firebase: ${uploadedFile.size} bytes`);
+    
     const resource = await resourceModel.createResource({
       teacherId,
       orgId: teacher.orgId,
