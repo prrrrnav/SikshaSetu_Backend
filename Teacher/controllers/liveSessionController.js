@@ -64,16 +64,20 @@ exports.startLiveSession = async (req, res) => {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
+    // Allow starting session if already active (teacher re-entering)
     if (session.isActive) {
-      return res.status(400).json({ message: 'Session already active' });
+      return res.status(200).json({ message: 'Session already active, proceeding...' });
     }
 
     await liveSessionModel.startLiveSession(id);
 
     res.status(200).json({ message: 'Live session started' });
   } catch (error) {
-    console.error('Start live session error:', error);
-    res.status(500).json({ message: 'Failed to start session' });
+    console.error('Start live session error trace:', error);
+    res.status(500).json({ 
+      message: 'Failed to start session',
+      error: error.message 
+    });
   }
 };
 
@@ -295,6 +299,34 @@ exports.uploadSlides = async (req, res) => {
   } catch (error) {
     console.error('Upload slides error:', error);
     res.status(500).json({ message: 'Failed to upload slides' });
+  }
+};
+
+exports.deleteLiveSession = async (req, res) => {
+  try {
+    const teacherId = req.user.userId;
+    const { id } = req.params;
+    
+    console.log('Delete Request - UserID:', teacherId, 'SessionID:', id);
+
+    const session = await liveSessionModel.getLiveSessionById(id);
+    if (!session) {
+      console.warn('Session not found for deletion:', id);
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    if (session.teacherId !== teacherId) {
+      console.warn('Unauthorized delete attempt - Session Teacher:', session.teacherId, 'Request Teacher:', teacherId);
+      return res.status(403).json({ message: 'Unauthorized to delete this session' });
+    }
+
+    await liveSessionModel.deleteLiveSession(id);
+    console.log('Session deleted successfully:', id);
+
+    res.status(200).json({ message: 'Live session deleted successfully' });
+  } catch (error) {
+    console.error('Delete live session error:', error);
+    res.status(500).json({ message: 'Failed to delete session', error: error.message });
   }
 };
 

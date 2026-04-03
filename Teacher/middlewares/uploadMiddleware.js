@@ -6,6 +6,7 @@ const { PDFDocument } = require('pdf-lib');
 const ffmpeg = require('fluent-ffmpeg');
 const { promisify } = require('util');
 const { exec } = require('child_process');
+const os = require('os');
 const execPromise = promisify(exec);
 
 const UPLOAD_LIMITS = {
@@ -216,33 +217,70 @@ const compressSlide = async (buffer, originalName) => {
 //   }
 // };
 
+let gsAvailable = null;
+let ffmpegAvailable = null;
+
+const checkCommand = async (cmd) => {
+  try {
+    const checkCmd = os.platform() === 'win32' ? `where ${cmd}` : `which ${cmd}`;
+    await execPromise(checkCmd);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+
 const compressPDF = async (buffer, originalName) => {
-  const tempInput = `/tmp/${Date.now()}_in.pdf`;
-  const tempOutput = `/tmp/${Date.now()}_out.pdf`;
+  const initialSize = buffer.length;
+  const tempInput = path.join(os.tmpdir(), `${Date.now()}_in.pdf`);
+  const tempOutput = path.join(os.tmpdir(), `${Date.now()}_out.pdf`);
   const baseName = path.basename(originalName, '.pdf');
+
+  // Check availability once
+  if (gsAvailable === null) {
+    gsAvailable = await checkCommand('gs');
+  }
+
+  if (!gsAvailable) {
+    // If not available, skip quietly without logs unless it's a huge file
+    if (initialSize > 10 * 1024 * 1024) {
+      console.warn("ℹ️ PDF compression skipped: Ghostscript not installed.");
+    }
+    return { buffer, filename: originalName, size: buffer.length, mimetype: 'application/pdf' };
+  }
+
+  console.log(`--- PDF Compression Started: ${originalName} ---`);
+  console.log(`Original Size: ${(initialSize / (1024 * 1024)).toFixed(2)} MB (${initialSize} bytes)`);
 
   try {
     await fs.writeFile(tempInput, buffer);
-
-    // Ghostscript command for "screen" quality (72 dpi) or "ebook" (150 dpi)
-    // screen is the smallest size; ebook is a good middle ground.
     const gsCommand = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/screen -dNOPAUSE -dQUIET -dBATCH -sOutputFile=${tempOutput} ${tempInput}`;
-    
     await execPromise(gsCommand);
 
     const compressedBuffer = await fs.readFile(tempOutput);
-    
-    // Cleanup
-    await Promise.all([fs.unlink(tempInput), fs.unlink(tempOutput)]);
+    const finalSize = compressedBuffer.length;
+    const savedBytes = initialSize - finalSize;
+    const reductionPercent = ((savedBytes / initialSize) * 100).toFixed(2);
+
+    console.log(`Compressed Size: ${(finalSize / (1024 * 1024)).toFixed(2)} MB (${finalSize} bytes)`);
+    console.log(`Result: ${reductionPercent}% reduction (${(savedBytes / 1024).toFixed(2)} KB saved)`);
+    console.log(`-----------------------------------------------`);
+
+    await Promise.all([
+      fs.unlink(tempInput).catch(() => {}), 
+      fs.unlink(tempOutput).catch(() => {})
+    ]);
 
     return {
       buffer: compressedBuffer,
       filename: `${baseName}_${Date.now()}.pdf`,
-      size: compressedBuffer.length,
+      size: finalSize,
       mimetype: 'application/pdf'
     };
   } catch (error) {
-    console.error("PDF Compression Error:", error);
+    // If it somehow fails here even after checkCommand, just return original
+    await fs.unlink(tempInput).catch(() => {});
     return { buffer, filename: originalName, size: buffer.length, mimetype: 'application/pdf' };
   }
 };
@@ -298,8 +336,23 @@ const compressDocument = async (buffer, originalName, mimetype) => {
 const compressAudio = async (buffer, originalName) => {
   const ext = path.extname(originalName).toLowerCase();
   const baseName = path.basename(originalName, ext);
-  const tempInput = `/tmp/${Date.now()}_input${ext}`;
-  const tempOutput = `/tmp/${Date.now()}_output.mp3`;
+  const tempInput = path.join(os.tmpdir(), `${Date.now()}_input${ext}`);
+  const tempOutput = path.join(os.tmpdir(), `${Date.now()}_output.mp3`);
+
+  // Check availability once
+  if (ffmpegAvailable === null) {
+    ffmpegAvailable = await checkCommand('ffmpeg');
+  }
+
+  if (!ffmpegAvailable) {
+    // Skip silently if missing
+    return { 
+      buffer, 
+      filename: originalName, 
+      size: buffer.length, 
+      mimetype: 'audio/mpeg' 
+    };
+  }
 
   try {
     await fs.writeFile(tempInput, buffer);

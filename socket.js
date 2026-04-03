@@ -98,6 +98,18 @@ const initializeSocket = (server) => {
             : 1,
         });
 
+        // Send current slide state to the newly joined student
+        if (role === "student" && session.slides && session.slides.length > 0) {
+          const currentIndex = session.currentSlideIndex || 0;
+          if (session.slides[currentIndex]) {
+            socket.emit("slide-changed", {
+              slideIndex: currentIndex,
+              slideImage: session.slides[currentIndex],
+              changedBy: "System (On Join)",
+            });
+          }
+        }
+
         console.log(`${userName} (${role}) joined session ${sessionId}`);
       } catch (error) {
         console.error("Join session error:", error);
