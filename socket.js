@@ -51,7 +51,7 @@ const initializeSocket = (server) => {
     pingTimeout: 30000,
     pingInterval: 25000,
     upgradeTimeout: 10000,
-    maxHttpBufferSize: 1e6,
+    maxHttpBufferSize: 1e7, // Support larger slide images (10MB)
     transports: ['websocket', 'polling']
   });
 
@@ -98,14 +98,28 @@ const initializeSocket = (server) => {
             : 1,
         });
 
-        // Send current slide state to the newly joined student
-        if (role === "student" && session.slides && session.slides.length > 0) {
+        // Send current slide state to the newly joined student directly from the database
+        if (role === "student") {
           const currentIndex = session.currentSlideIndex || 0;
-          if (session.slides[currentIndex]) {
+          let slideImage = session.currentSlideImage;
+
+          // FIX 1: Improved fallback — use slides[0] if currentSlideImage missing
+          if (!slideImage && Array.isArray(session.slides) && session.slides.length > 0) {
+            const slideData = session.slides[currentIndex] ?? session.slides[0];
+            slideImage = typeof slideData === 'string' ? slideData : slideData?.imageUrl;
+          }
+
+          if (slideImage) {
+            console.log(`[Sync] Sending initial slide [${currentIndex}] to student ${userId}`);
             socket.emit("slide-changed", {
               slideIndex: currentIndex,
-              slideImage: session.slides[currentIndex],
-              changedBy: "System (On Join)",
+              slideImage,
+              changedBy: "System (Direct Sync)",
+            });
+          } else if (session.isActive) {
+            // FIX 1: Session is live but no slide image found — ask teacher to re-broadcast
+            socket.to(sessionId).emit("request-slide-sync", {
+              requestedBy: socket.id,
             });
           }
         }
@@ -120,26 +134,33 @@ const initializeSocket = (server) => {
     // Slide synchronization - change slide
     socket.on("change-slide", async ({ sessionId, slideIndex, slideImage }) => {
       try {
-        if (socket.role !== "teacher") {
+        const currentRole = socket.role || "unknown";
+        if (currentRole !== "teacher") {
+          console.warn(`[Blocked] Slide change attempt by ${socket.userName || 'unknown'}. Role: ${currentRole}`);
           socket.emit("error", { message: "Only teacher can change slides" });
           return;
         }
 
-        const sessionRef = db.collection("liveSessions").doc(sessionId);
-        await sessionRef.update({
-          currentSlideIndex: slideIndex,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        // --- PHASE 4: Debug Room Occupancy ---
+        const room = liveSessionNamespace.adapter.rooms.get(sessionId);
+        const numClients = room ? room.size : 0;
+        console.log(`[Sync] Teacher ${socket.userName} -> Slide ${slideIndex} (Room: ${sessionId}, Clients: ${numClients})`);
 
+        // Broadcast immediately to everyone in the room
         liveSessionNamespace.to(sessionId).emit("slide-changed", {
           slideIndex,
           slideImage,
           changedBy: socket.userName,
         });
 
-        console.log(
-          `Teacher changed to slide ${slideIndex} in session ${sessionId}`
-        );
+        // Persist to database in the background
+        const sessionRef = db.collection("liveSessions").doc(sessionId);
+        sessionRef.update({
+          currentSlideIndex: slideIndex,
+          currentSlideImage: slideImage,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }).catch(err => console.error("[Sync] Firestore update failed:", err));
+
       } catch (error) {
         console.error("Change slide error:", error);
         socket.emit("error", { message: "Failed to change slide" });
@@ -353,6 +374,40 @@ const initializeSocket = (server) => {
         console.log(`Network quality for ${socket.userName}: ${quality}`);
       } catch (error) {
         console.error("Network quality report error:", error);
+      }
+    });
+
+    // FIX 5: Backend handler for request-sync
+    socket.on("request-sync", async ({ sessionId }) => {
+      try {
+        const sessionRef = db.collection("liveSessions").doc(sessionId);
+        const sessionDoc = await sessionRef.get();
+        if (!sessionDoc.exists) return;
+        
+        const session = sessionDoc.data();
+        let slideImage = session.currentSlideImage;
+        const currentIndex = session.currentSlideIndex || 0;
+        
+        // FIX 1 & 5: Robust fallback — check slides array if currentSlideImage is null
+        if (!slideImage && Array.isArray(session.slides) && session.slides.length > 0) {
+          const slideData = session.slides[currentIndex] ?? session.slides[0];
+          slideImage = typeof slideData === 'string' ? slideData : slideData?.imageUrl;
+        }
+
+        if (slideImage) {
+          socket.emit("slide-changed", { 
+            slideIndex: currentIndex, 
+            slideImage, 
+            changedBy: "System (Re-sync)" 
+          });
+        } else if (session.isActive) {
+          // If still no image but session is active, ask teacher to re-broadcast
+          socket.to(sessionId).emit("request-slide-sync", {
+            requestedBy: socket.id,
+          });
+        }
+      } catch (error) {
+        console.error("Request sync error:", error);
       }
     });
 

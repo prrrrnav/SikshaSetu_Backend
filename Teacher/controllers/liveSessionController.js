@@ -1,7 +1,7 @@
 const liveSessionModel = require('../models/liveSessionModel');
 const courseModel = require('../models/courseModel');
 const uploadMiddleware = require('../middlewares/uploadMiddleware');
-const { bucket } = require('../../config/Firebase');
+const { bucket, admin } = require('../../config/Firebase');
 
 exports.scheduleLiveSession = async (req, res) => {
   try {
@@ -54,6 +54,15 @@ exports.startLiveSession = async (req, res) => {
   try {
     const teacherId = req.user.userId;
     const { id } = req.params;
+    
+    // PHASE 4: Defensive check for body parsing failure
+    if (!req.body || Object.keys(req.body).length === 0) {
+      console.error("[Session Start] Request body is missing or empty. Check for PayloadTooLargeError.");
+      return res.status(400).json({ 
+        message: "Failed to start session: Slide data was not received correctly.",
+        debug: "Request body is empty. This is usually caused by an oversized slide image payload."
+      });
+    }
 
     const session = await liveSessionModel.getLiveSessionById(id);
     if (!session) {
@@ -65,11 +74,15 @@ exports.startLiveSession = async (req, res) => {
     }
 
     // Allow starting session if already active (teacher re-entering)
-    if (session.isActive) {
-      return res.status(200).json({ message: 'Session already active, proceeding...' });
-    }
+    // FIX 3b: Accept initial slide data from request body
+    const { currentSlideImage, currentSlideIndex } = req.body;
 
-    await liveSessionModel.startLiveSession(id);
+    await liveSessionModel.updateLiveSession(id, {
+      isActive: true,
+      currentSlideImage: currentSlideImage ?? null,
+      currentSlideIndex: currentSlideIndex ?? 0,
+      startedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
 
     res.status(200).json({ message: 'Live session started' });
   } catch (error) {
@@ -289,7 +302,15 @@ exports.uploadSlides = async (req, res) => {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    await liveSessionModel.updateSlides(id, slides);
+    // FIX 2: Pre-populate slide data during upload
+    const firstSlide = slides[0];
+    const initialSlideImage = typeof firstSlide === 'string' ? firstSlide : firstSlide?.imageUrl;
+
+    await liveSessionModel.updateLiveSession(id, {
+      slides: slides,
+      currentSlideIndex: 0,
+      currentSlideImage: initialSlideImage ?? null
+    });
 
     const { getIO } = require('../../socket');
     const io = getIO();

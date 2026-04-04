@@ -54,9 +54,9 @@ const fileFilter = (req, file, cb) => {
   if (isImage) maxSize = UPLOAD_LIMITS.IMAGE.maxSize;
   if (isAudio) maxSize = UPLOAD_LIMITS.AUDIO.maxSize;
 
-  if (file.size > maxSize) {
-    return cb(new Error(`File too large. Max size: ${maxSize / (1024 * 1024)}MB`), false);
-  }
+  // if (file.size > maxSize) {
+  //   return cb(new Error(`File too large. Max size: ${maxSize / (1024 * 1024)}MB`), false);
+  // }
 
   cb(null, true);
 };
