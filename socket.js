@@ -411,6 +411,16 @@ const initializeSocket = (server) => {
       }
     });
 
+    // Session termination sync
+    socket.on("end-session", ({ sessionId }) => {
+      if (socket.role !== "teacher") return;
+      console.log(`[Session] Teacher ended session ${sessionId}. Notifying students...`);
+      liveSessionNamespace.to(sessionId).emit("session-ended", {
+        message: "The teacher has ended the live session.",
+        endedAt: new Date().toISOString()
+      });
+    });
+
     // Reconnection handling
     socket.on("reconnect-to-session", async ({ sessionId, userId }) => {
       try {

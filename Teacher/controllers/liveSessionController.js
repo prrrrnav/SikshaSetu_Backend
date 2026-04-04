@@ -74,15 +74,26 @@ exports.startLiveSession = async (req, res) => {
     }
 
     // Allow starting session if already active (teacher re-entering)
-    // FIX 3b: Accept initial slide data from request body
-    const { currentSlideImage, currentSlideIndex } = req.body;
+    // FIX 3b: Accept initial slide data from request body if available
+    // OPTIMIZATION: Use existing Firestore data if currentSlideImage is not sent
+    const { currentSlideImage, currentSlideIndex } = req.body || {};
 
-    await liveSessionModel.updateLiveSession(id, {
+    const updateData = {
       isActive: true,
-      currentSlideImage: currentSlideImage ?? null,
-      currentSlideIndex: currentSlideIndex ?? 0,
+      currentSlideIndex: currentSlideIndex ?? session.currentSlideIndex ?? 0,
       startedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    };
+
+    // Only update image if a new one was actually provided (prevents nulling existing data)
+    if (currentSlideImage) {
+      updateData.currentSlideImage = currentSlideImage;
+    } else if (!session.currentSlideImage && session.slides?.[0]) {
+      // Fallback to first slide if none exists yet
+      const firstSlide = session.slides[0];
+      updateData.currentSlideImage = typeof firstSlide === 'string' ? firstSlide : firstSlide?.imageUrl;
+    }
+
+    await liveSessionModel.updateLiveSession(id, updateData);
 
     res.status(200).json({ message: 'Live session started' });
   } catch (error) {

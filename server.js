@@ -34,6 +34,18 @@ app.use('/api/teacher', teacherRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/admin', adminRoutes);
 
+ // Global Error Handler for Body Parser (PayloadTooLargeError, etc.)
+ app.use((err, req, res, next) => {
+   if (err.type === 'entity.too.large') {
+     console.error(`[Payload Error] ${req.method} ${req.url} - ${err.message}`);
+     return res.status(413).json({ 
+       message: "Payload too large. Please reduce the size of your images or PDF.",
+       error: err.message
+     });
+   }
+   next(err);
+ });
+
 app.get('/', (req, res) => {
   res.send('SikshaSetu Backend');
 });
