@@ -16,13 +16,33 @@ exports.getAvailableSessions = async (req, res) => {
     const sessionsSnapshot = await db
       .collection("liveSessions")
       .where("orgId", "==", student.orgId)
-      .where("isActive", "==", true)
       .get();
 
-    const sessions = sessionsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    let sessions = sessionsSnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        sessionId: data.sessionId || doc.id, // Explicit sessionId mapping
+        ...data
+      };
+    });
+
+    // DEBUG: Log how many we found before filtering
+    console.log(`[Student-Query] Found ${sessions.length} sessions total for org: ${student.orgId}`);
+
+    // Filter out sessions that have already ended (endedAt exists)
+    // Scheduled sessions (endedAt is null/missing) and Live sessions (isActive) should both appear.
+    sessions = sessions.filter(session => !session.endedAt);
+    
+    // Final check: if isActive is false and it's ancient but endedAt is somehow null, 
+    // it's likely a zombie scheduled class from the past. For now, we show all future ones.
+
+    // Sort: Live first, then Scheduled by date
+    sessions.sort((a, b) => {
+      if (a.isActive && !b.isActive) return -1;
+      if (!a.isActive && b.isActive) return 1;
+      return new Date(a.scheduledDate || a.createdAt) - new Date(b.scheduledDate || b.createdAt);
+    });
 
     const sessionsWithCourseInfo = await Promise.all(
       sessions.map(async (session) => {
