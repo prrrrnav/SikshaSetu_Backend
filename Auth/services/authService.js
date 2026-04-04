@@ -38,7 +38,7 @@ const comparePassword = async (password, hashedPassword) => {
 };
 
 const generateToken = (payload) => {
-  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '12h' });
 };
 
 const verifyToken = (token) => {
@@ -65,13 +65,14 @@ const deleteOTP = async (identifier) => {
 };
 
 const saveToken = async (userId, token, role) => {
-  const expirationDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const expirationDate = new Date(Date.now() + 12 * 60 * 60 * 1000);
   
   await tokenCollection.doc(userId).set({
     token,
     role,
     expiresAt: admin.firestore.Timestamp.fromDate(expirationDate),
-    createdAt: admin.firestore.FieldValue.serverTimestamp()
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    maxAge: 12 * 60 * 60 * 1000
   });
 };
 

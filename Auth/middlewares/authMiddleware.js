@@ -35,7 +35,7 @@ exports.authenticate = async (req, res, next) => {
 exports.authorizeRoles = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ message: `Access denied. Role is: ${req.user.role}. Expected: ${roles.join(', ')}` });
     }
     next();
   };
@@ -47,7 +47,7 @@ exports.authorizeSharedRoles = (...allowedRolePairs) => {
     const flatRoles = allowedRolePairs.flat();
     
     if (!flatRoles.includes(userRole)) {
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ message: `Access denied. Role is: ${userRole}. Expected: ${flatRoles.join(', ')}` });
     }
     next();
   };

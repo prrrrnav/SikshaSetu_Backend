@@ -1,7 +1,7 @@
 const liveSessionModel = require('../models/liveSessionModel');
 const courseModel = require('../models/courseModel');
 const uploadMiddleware = require('../middlewares/uploadMiddleware');
-const { bucket } = require('../../config/Firebase');
+const { bucket, admin } = require('../../config/Firebase');
 
 exports.scheduleLiveSession = async (req, res) => {
   try {
@@ -54,6 +54,15 @@ exports.startLiveSession = async (req, res) => {
   try {
     const teacherId = req.user.userId;
     const { id } = req.params;
+    
+    // PHASE 4: Defensive check for body parsing failure
+    if (!req.body || Object.keys(req.body).length === 0) {
+      console.error("[Session Start] Request body is missing or empty. Check for PayloadTooLargeError.");
+      return res.status(400).json({ 
+        message: "Failed to start session: Slide data was not received correctly.",
+        debug: "Request body is empty. This is usually caused by an oversized slide image payload."
+      });
+    }
 
     const session = await liveSessionModel.getLiveSessionById(id);
     if (!session) {
@@ -64,16 +73,35 @@ exports.startLiveSession = async (req, res) => {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    if (session.isActive) {
-      return res.status(400).json({ message: 'Session already active' });
+    // Allow starting session if already active (teacher re-entering)
+    // FIX 3b: Accept initial slide data from request body if available
+    // OPTIMIZATION: Use existing Firestore data if currentSlideImage is not sent
+    const { currentSlideImage, currentSlideIndex } = req.body || {};
+
+    const updateData = {
+      isActive: true,
+      currentSlideIndex: currentSlideIndex ?? session.currentSlideIndex ?? 0,
+      startedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    // Only update image if a new one was actually provided (prevents nulling existing data)
+    if (currentSlideImage) {
+      updateData.currentSlideImage = currentSlideImage;
+    } else if (!session.currentSlideImage && session.slides?.[0]) {
+      // Fallback to first slide if none exists yet
+      const firstSlide = session.slides[0];
+      updateData.currentSlideImage = typeof firstSlide === 'string' ? firstSlide : firstSlide?.imageUrl;
     }
 
-    await liveSessionModel.startLiveSession(id);
+    await liveSessionModel.updateLiveSession(id, updateData);
 
     res.status(200).json({ message: 'Live session started' });
   } catch (error) {
-    console.error('Start live session error:', error);
-    res.status(500).json({ message: 'Failed to start session' });
+    console.error('Start live session error trace:', error);
+    res.status(500).json({ 
+      message: 'Failed to start session',
+      error: error.message 
+    });
   }
 };
 
@@ -285,7 +313,15 @@ exports.uploadSlides = async (req, res) => {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    await liveSessionModel.updateSlides(id, slides);
+    // FIX 2: Pre-populate slide data during upload
+    const firstSlide = slides[0];
+    const initialSlideImage = typeof firstSlide === 'string' ? firstSlide : firstSlide?.imageUrl;
+
+    await liveSessionModel.updateLiveSession(id, {
+      slides: slides,
+      currentSlideIndex: 0,
+      currentSlideImage: initialSlideImage ?? null
+    });
 
     const { getIO } = require('../../socket');
     const io = getIO();
@@ -295,6 +331,34 @@ exports.uploadSlides = async (req, res) => {
   } catch (error) {
     console.error('Upload slides error:', error);
     res.status(500).json({ message: 'Failed to upload slides' });
+  }
+};
+
+exports.deleteLiveSession = async (req, res) => {
+  try {
+    const teacherId = req.user.userId;
+    const { id } = req.params;
+    
+    console.log('Delete Request - UserID:', teacherId, 'SessionID:', id);
+
+    const session = await liveSessionModel.getLiveSessionById(id);
+    if (!session) {
+      console.warn('Session not found for deletion:', id);
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    if (session.teacherId !== teacherId) {
+      console.warn('Unauthorized delete attempt - Session Teacher:', session.teacherId, 'Request Teacher:', teacherId);
+      return res.status(403).json({ message: 'Unauthorized to delete this session' });
+    }
+
+    await liveSessionModel.deleteLiveSession(id);
+    console.log('Session deleted successfully:', id);
+
+    res.status(200).json({ message: 'Live session deleted successfully' });
+  } catch (error) {
+    console.error('Delete live session error:', error);
+    res.status(500).json({ message: 'Failed to delete session', error: error.message });
   }
 };
 

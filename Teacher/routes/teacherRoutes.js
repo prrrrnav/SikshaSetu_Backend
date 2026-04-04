@@ -42,6 +42,7 @@ router.get('/content', authenticate, authorizeRoles('teacher'), contentControlle
 router.post('/live-session/schedule', authenticate, authorizeRoles('teacher'), liveSessionController.scheduleLiveSession);
 router.post('/live-session/start/:id', authenticate, authorizeRoles('teacher'), liveSessionController.startLiveSession);
 router.post('/live-session/end/:id', authenticate, authorizeRoles('teacher'), liveSessionController.endLiveSession);
+router.delete('/live-session/:id', authenticate, authorizeRoles('teacher'), liveSessionController.deleteLiveSession);
 router.post('/live-session/upload-material/:id', authenticate, authorizeRoles('teacher'), uploadMiddleware.multiple('files', 10), liveSessionController.uploadMaterial);
 router.post('/live-session/change-slide/:id', authenticate, authorizeRoles('teacher'), liveSessionController.changeSlide);
 router.post('/live-session/upload-slides/:id', authenticate, authorizeRoles('teacher'), liveSessionController.uploadSlides);

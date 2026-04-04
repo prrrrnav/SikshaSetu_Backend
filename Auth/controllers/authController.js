@@ -49,7 +49,7 @@ exports.organizationLogin = async (req, res) => {
       httpOnly: true,
       secure: true,
       sameSite: 'none',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      maxAge: 12 * 60 * 60 * 1000
     });
 
     res.status(200).json({
@@ -154,7 +154,7 @@ exports.organizationVerifyOTP = async (req, res) => {
       httpOnly: true,
       secure: true,
       sameSite: 'none',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      maxAge: 12 * 60 * 60 * 1000
     });
 
     res.status(200).json({
@@ -210,7 +210,7 @@ exports.teacherLogin = async (req, res) => {
       httpOnly: true,
       secure: true,
       sameSite: 'none',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      maxAge: 12 * 60 * 60 * 1000
     });
 
     res.status(200).json({
@@ -317,7 +317,7 @@ exports.teacherVerifyOTP = async (req, res) => {
       httpOnly: true,
       secure: true,
       sameSite: 'none',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      maxAge: 12 * 60 * 60 * 1000
     });
 
     res.status(200).json({
@@ -375,7 +375,7 @@ exports.studentLogin = async (req, res) => {
       httpOnly: true,
       secure: true,
       sameSite: 'none',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      maxAge: 12 * 60 * 60 * 1000
     });
 
     res.status(200).json({
@@ -482,7 +482,7 @@ exports.studentVerifyOTP = async (req, res) => {
       httpOnly: true,
       secure: true,
       sameSite: 'none',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      maxAge: 12 * 60 * 60 * 1000
     });
 
     res.status(200).json({

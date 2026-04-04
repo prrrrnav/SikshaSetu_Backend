@@ -6,6 +6,7 @@ const { PDFDocument } = require('pdf-lib');
 const ffmpeg = require('fluent-ffmpeg');
 const { promisify } = require('util');
 const { exec } = require('child_process');
+const os = require('os');
 const execPromise = promisify(exec);
 
 const UPLOAD_LIMITS = {
@@ -53,9 +54,9 @@ const fileFilter = (req, file, cb) => {
   if (isImage) maxSize = UPLOAD_LIMITS.IMAGE.maxSize;
   if (isAudio) maxSize = UPLOAD_LIMITS.AUDIO.maxSize;
 
-  if (file.size > maxSize) {
-    return cb(new Error(`File too large. Max size: ${maxSize / (1024 * 1024)}MB`), false);
-  }
+  // if (file.size > maxSize) {
+  //   return cb(new Error(`File too large. Max size: ${maxSize / (1024 * 1024)}MB`), false);
+  // }
 
   cb(null, true);
 };
@@ -298,8 +299,23 @@ const compressDocument = async (buffer, originalName, mimetype) => {
 const compressAudio = async (buffer, originalName) => {
   const ext = path.extname(originalName).toLowerCase();
   const baseName = path.basename(originalName, ext);
-  const tempInput = `/tmp/${Date.now()}_input${ext}`;
-  const tempOutput = `/tmp/${Date.now()}_output.mp3`;
+  const tempInput = path.join(os.tmpdir(), `${Date.now()}_input${ext}`);
+  const tempOutput = path.join(os.tmpdir(), `${Date.now()}_output.mp3`);
+
+  // Check availability once
+  if (ffmpegAvailable === null) {
+    ffmpegAvailable = await checkCommand('ffmpeg');
+  }
+
+  if (!ffmpegAvailable) {
+    // Skip silently if missing
+    return { 
+      buffer, 
+      filename: originalName, 
+      size: buffer.length, 
+      mimetype: 'audio/mpeg' 
+    };
+  }
 
   try {
     await fs.writeFile(tempInput, buffer);
