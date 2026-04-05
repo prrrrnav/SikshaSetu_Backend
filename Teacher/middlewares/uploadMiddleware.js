@@ -237,70 +237,33 @@ const compressSlide = async (buffer, originalName) => {
 //   }
 // };
 
-let gsAvailable = null;
-let ffmpegAvailable = null;
-
-const checkCommand = async (cmd) => {
-  try {
-    const checkCmd = os.platform() === 'win32' ? `where ${cmd}` : `which ${cmd}`;
-    await execPromise(checkCmd);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-
 const compressPDF = async (buffer, originalName) => {
-  const initialSize = buffer.length;
-  const tempInput = path.join(os.tmpdir(), `${Date.now()}_in.pdf`);
-  const tempOutput = path.join(os.tmpdir(), `${Date.now()}_out.pdf`);
+  const tempInput = `/tmp/${Date.now()}_in.pdf`;
+  const tempOutput = `/tmp/${Date.now()}_out.pdf`;
   const baseName = path.basename(originalName, '.pdf');
-
-  // Check availability once
-  if (gsAvailable === null) {
-    gsAvailable = await checkCommand('gs');
-  }
-
-  if (!gsAvailable) {
-    // If not available, skip quietly without logs unless it's a huge file
-    if (initialSize > 10 * 1024 * 1024) {
-      console.warn("ℹ️ PDF compression skipped: Ghostscript not installed.");
-    }
-    return { buffer, filename: originalName, size: buffer.length, mimetype: 'application/pdf' };
-  }
-
-  console.log(`--- PDF Compression Started: ${originalName} ---`);
-  console.log(`Original Size: ${(initialSize / (1024 * 1024)).toFixed(2)} MB (${initialSize} bytes)`);
 
   try {
     await fs.writeFile(tempInput, buffer);
+
+    // Ghostscript command for "screen" quality (72 dpi) or "ebook" (150 dpi)
+    // screen is the smallest size; ebook is a good middle ground.
     const gsCommand = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/screen -dNOPAUSE -dQUIET -dBATCH -sOutputFile=${tempOutput} ${tempInput}`;
+    
     await execPromise(gsCommand);
 
     const compressedBuffer = await fs.readFile(tempOutput);
-    const finalSize = compressedBuffer.length;
-    const savedBytes = initialSize - finalSize;
-    const reductionPercent = ((savedBytes / initialSize) * 100).toFixed(2);
-
-    console.log(`Compressed Size: ${(finalSize / (1024 * 1024)).toFixed(2)} MB (${finalSize} bytes)`);
-    console.log(`Result: ${reductionPercent}% reduction (${(savedBytes / 1024).toFixed(2)} KB saved)`);
-    console.log(`-----------------------------------------------`);
-
-    await Promise.all([
-      fs.unlink(tempInput).catch(() => {}), 
-      fs.unlink(tempOutput).catch(() => {})
-    ]);
+    
+    // Cleanup
+    await Promise.all([fs.unlink(tempInput), fs.unlink(tempOutput)]);
 
     return {
       buffer: compressedBuffer,
       filename: `${baseName}_${Date.now()}.pdf`,
-      size: finalSize,
+      size: compressedBuffer.length,
       mimetype: 'application/pdf'
     };
   } catch (error) {
-    // If it somehow fails here even after checkCommand, just return original
-    await fs.unlink(tempInput).catch(() => {});
+    console.error("PDF Compression Error:", error);
     return { buffer, filename: originalName, size: buffer.length, mimetype: 'application/pdf' };
   }
 };
