@@ -23,7 +23,7 @@ const UPLOAD_LIMITS = {
   AUDIO: {
     maxSize: 50 * 1024 * 1024, // 50MB
     targetSize: { min: 2 * 1024 * 1024, max: 10 * 1024 * 1024 }, // 2-10MB
-    maxFiles: 1
+    maxFiles: 50
   },
   SLIDES: {
     maxSize: 10 * 1024 * 1024, // 10MB per slide
@@ -34,7 +34,7 @@ const UPLOAD_LIMITS = {
 
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'];
 const DOCUMENT_EXTENSIONS = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx'];
-const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac'];
+const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.webm'];
 const ALLOWED_EXTENSIONS = [...IMAGE_EXTENSIONS, ...DOCUMENT_EXTENSIONS, ...AUDIO_EXTENSIONS];
 
 const storage = multer.memoryStorage();
@@ -71,99 +71,119 @@ const upload = multer({
 });
 
 const compressImage = async (buffer, originalName) => {
-  const ext = path.extname(originalName).toLowerCase();
-  const baseName = path.basename(originalName, ext);
-  const outputName = `${baseName}_${Date.now()}.webp`;
+  try {
+    const ext = path.extname(originalName).toLowerCase();
+    const baseName = path.basename(originalName, ext);
+    const outputName = `${baseName}_${Date.now()}.webp`;
 
-  let quality = 90;
-  let compressedBuffer;
-  let targetMin = UPLOAD_LIMITS.IMAGE.targetSize.min;
-  let targetMax = UPLOAD_LIMITS.IMAGE.targetSize.max;
+    let quality = 90;
+    let compressedBuffer;
+    let targetMin = UPLOAD_LIMITS.IMAGE.targetSize.min;
+    let targetMax = UPLOAD_LIMITS.IMAGE.targetSize.max;
 
-  const image = sharp(buffer);
-  const metadata = await image.metadata();
+    const image = sharp(buffer);
+    const metadata = await image.metadata();
 
-  let width = metadata.width;
-  if (width > 2048) {
-    width = 2048;
-  }
-
-  while (quality >= 70) {
-    compressedBuffer = await sharp(buffer)
-      .resize(width, null, { withoutEnlargement: true })
-      .webp({ quality, effort: 4 })
-      .toBuffer();
-
-    if (compressedBuffer.length >= targetMin && compressedBuffer.length <= targetMax) {
-      break;
+    let width = metadata.width;
+    if (width > 2048) {
+      width = 2048;
     }
 
-    if (compressedBuffer.length < targetMin && quality < 90) {
-      quality += 5;
+    while (quality >= 70) {
       compressedBuffer = await sharp(buffer)
         .resize(width, null, { withoutEnlargement: true })
-        .webp({ quality: Math.min(quality, 90), effort: 4 })
+        .webp({ quality, effort: 4 })
         .toBuffer();
-      break;
+
+      if (compressedBuffer.length >= targetMin && compressedBuffer.length <= targetMax) {
+        break;
+      }
+
+      if (compressedBuffer.length < targetMin && quality < 90) {
+        quality += 5;
+        compressedBuffer = await sharp(buffer)
+          .resize(width, null, { withoutEnlargement: true })
+          .webp({ quality: Math.min(quality, 90), effort: 4 })
+          .toBuffer();
+        break;
+      }
+
+      quality -= 5;
     }
 
-    quality -= 5;
+    return {
+      buffer: compressedBuffer,
+      filename: outputName,
+      size: compressedBuffer.length,
+      mimetype: 'image/webp'
+    };
+  } catch (error) {
+    console.error(`Image compression error for ${originalName}:`, error);
+    return {
+      buffer,
+      filename: originalName,
+      size: buffer.length,
+      mimetype: 'image/webp'
+    };
   }
-
-  return {
-    buffer: compressedBuffer,
-    filename: outputName,
-    size: compressedBuffer.length,
-    mimetype: 'image/webp'
-  };
 };
 
 const compressSlide = async (buffer, originalName) => {
-  const ext = path.extname(originalName).toLowerCase();
-  const baseName = path.basename(originalName, ext);
-  const outputName = `${baseName}_${Date.now()}.webp`;
+  try {
+    const ext = path.extname(originalName).toLowerCase();
+    const baseName = path.basename(originalName, ext);
+    const outputName = `${baseName}_${Date.now()}.webp`;
 
-  let quality = 85;
-  let compressedBuffer;
-  let targetMin = UPLOAD_LIMITS.SLIDES.targetSize.min;
-  let targetMax = UPLOAD_LIMITS.SLIDES.targetSize.max;
+    let quality = 85;
+    let compressedBuffer;
+    let targetMin = UPLOAD_LIMITS.SLIDES.targetSize.min;
+    let targetMax = UPLOAD_LIMITS.SLIDES.targetSize.max;
 
-  const image = sharp(buffer);
-  const metadata = await image.metadata();
+    const image = sharp(buffer);
+    const metadata = await image.metadata();
 
-  let width = metadata.width;
-  if (width > 1920) {
-    width = 1920;
-  }
-
-  while (quality >= 65) {
-    compressedBuffer = await sharp(buffer)
-      .resize(width, null, { withoutEnlargement: true })
-      .webp({ quality, effort: 4 })
-      .toBuffer();
-
-    if (compressedBuffer.length >= targetMin && compressedBuffer.length <= targetMax) {
-      break;
+    let width = metadata.width;
+    if (width > 1920) {
+      width = 1920;
     }
 
-    if (compressedBuffer.length < targetMin && quality < 85) {
-      quality += 5;
+    while (quality >= 65) {
       compressedBuffer = await sharp(buffer)
         .resize(width, null, { withoutEnlargement: true })
-        .webp({ quality: Math.min(quality, 85), effort: 4 })
+        .webp({ quality, effort: 4 })
         .toBuffer();
-      break;
+
+      if (compressedBuffer.length >= targetMin && compressedBuffer.length <= targetMax) {
+        break;
+      }
+
+      if (compressedBuffer.length < targetMin && quality < 85) {
+        quality += 5;
+        compressedBuffer = await sharp(buffer)
+          .resize(width, null, { withoutEnlargement: true })
+          .webp({ quality: Math.min(quality, 85), effort: 4 })
+          .toBuffer();
+        break;
+      }
+
+      quality -= 5;
     }
 
-    quality -= 5;
+    return {
+      buffer: compressedBuffer,
+      filename: outputName,
+      size: compressedBuffer.length,
+      mimetype: 'image/webp'
+    };
+  } catch (error) {
+    console.error(`Slide compression error for ${originalName}:`, error);
+    return {
+      buffer,
+      filename: originalName,
+      size: buffer.length,
+      mimetype: 'image/webp'
+    };
   }
-
-  return {
-    buffer: compressedBuffer,
-    filename: outputName,
-    size: compressedBuffer.length,
-    mimetype: 'image/webp'
-  };
 };
 
 // const compressPDF = async (buffer, originalName) => {
@@ -430,8 +450,12 @@ const processFile = async (file, type = 'default') => {
 };
 
 const processMultipleFiles = async (files, type = 'default') => {
-  const processPromises = files.map(file => processFile(file, type));
-  return await Promise.all(processPromises);
+  const processedFiles = [];
+  for (const file of files) {
+    const processed = await processFile(file, type);
+    processedFiles.push(processed);
+  }
+  return processedFiles;
 };
 
 const uploadMiddleware = {

@@ -14,8 +14,6 @@ const createContent = async (contentData) => {
     title: contentData.title,
     description: contentData.description,
     slides: contentData.slides,
-    audio: contentData.audio,
-    slideAudioMapping: contentData.slideAudioMapping,
     duration: contentData.duration || null,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp()

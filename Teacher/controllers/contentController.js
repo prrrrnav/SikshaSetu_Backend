@@ -7,22 +7,19 @@ const fileUpload = require('../utils/fileUpload');
 exports.uploadContent = async (req, res) => {
   try {
     const teacherId = req.user.userId;
-    const { title, description, courseId, slideAudioMapping } = req.body;
+    const { title, description, courseId, audioIndices: audioIndicesRaw } = req.body;
+    const audioIndices = audioIndicesRaw ? JSON.parse(audioIndicesRaw) : [];
 
     if (!title || !description) {
       return res.status(400).json({ message: 'Title and description are required' });
     }
 
-    if (!req.files || !req.files.slides || !req.files.audio) {
-      return res.status(400).json({ message: 'Slides and audio files are required' });
+    if (!req.files || !req.files.slides) {
+      return res.status(400).json({ message: 'Slides are required' });
     }
 
     if (req.files.slides.length === 0) {
       return res.status(400).json({ message: 'At least one slide is required' });
-    }
-
-    if (req.files.audio.length !== 1) {
-      return res.status(400).json({ message: 'Exactly one audio file is required' });
     }
 
     const teacher = await teacherModel.getTeacherById(teacherId);
@@ -40,40 +37,64 @@ exports.uploadContent = async (req, res) => {
       }
     }
 
-    const processedSlides = await uploadMiddleware.processMultipleFiles(req.files.slides, 'slide');
-    const processedAudio = await uploadMiddleware.processFile(req.files.audio[0], 'audio');
+    let processedSlides, processedAudios;
+    try {
+      processedSlides = await uploadMiddleware.processMultipleFiles(req.files.slides, 'slide');
+      processedAudios = req.files.audio ? await uploadMiddleware.processMultipleFiles(req.files.audio, 'audio') : [];
+    } catch (error) {
+      console.error('File processing error:', error);
+      return res.status(500).json({ message: 'Failed to process files: ' + error.message });
+    }
 
-    const uploadedSlides = await fileUpload.uploadMultipleToStorage(processedSlides, 'recorded_lectures/slides');
-    const uploadedAudio = await fileUpload.uploadToStorage(
-      processedAudio.buffer,
-      processedAudio.filename,
-      processedAudio.mimetype,
-      'recorded_lectures/audio'
-    );
+    let uploadedSlides, uploadedAudios;
+    try {
+      console.log('Starting storage upload...');
+      uploadedSlides = await fileUpload.uploadMultipleToStorage(processedSlides, 'recorded_lectures/slides');
+      uploadedAudios = processedAudios.length > 0 
+        ? await fileUpload.uploadMultipleToStorage(processedAudios, 'recorded_lectures/audio') 
+        : [];
+      console.log(`Uploaded ${uploadedSlides.length} slides and ${uploadedAudios.length} audios.`);
+    } catch (error) {
+      console.error('Storage upload error:', error);
+      return res.status(500).json({ message: 'Failed to upload files to storage: ' + error.message, error: error.message });
+    }
 
-    const mapping = slideAudioMapping ? JSON.parse(slideAudioMapping) : {};
+    // Map uploaded audios to their respective slides using audioIndices
+    const slideData = uploadedSlides.map((slide, index) => {
+      const audioIdxPos = audioIndices.indexOf(index);
+      const audioInfo = audioIdxPos !== -1 ? uploadedAudios[audioIdxPos] : null;
 
-    const content = await contentModel.createContent({
-      teacherId,
-      orgId: teacher.orgId,
-      courseId: courseId || null,
-      title,
-      description,
-      slides: uploadedSlides.map((slide, index) => ({
+      return {
         url: slide.url,
         filePath: slide.filePath,
         filename: slide.filename,
         size: slide.size,
-        index
-      })),
-      audio: {
-        url: uploadedAudio.url,
-        filePath: uploadedAudio.filePath,
-        filename: uploadedAudio.filename,
-        size: uploadedAudio.size
-      },
-      slideAudioMapping: mapping
+        index,
+        audio: audioInfo ? {
+          url: audioInfo.url,
+          filePath: audioInfo.filePath,
+          filename: audioInfo.filename,
+          size: audioInfo.size
+        } : null
+      };
     });
+
+    let content;
+    try {
+      console.log('Saving to Firestore...');
+      content = await contentModel.createContent({
+        teacherId,
+        orgId: teacher.orgId,
+        courseId: courseId || null,
+        title,
+        description,
+        slides: slideData
+      });
+      console.log('Saved to Firestore successfully:', content.contentId);
+    } catch (error) {
+      console.error('Database error:', error);
+      return res.status(500).json({ message: 'Failed to save lecture metadata: ' + error.message, error: error.message });
+    }
 
     res.status(201).json({
       message: 'Recorded lecture uploaded successfully',
@@ -81,8 +102,12 @@ exports.uploadContent = async (req, res) => {
       content
     });
   } catch (error) {
-    console.error('Content upload error:', error);
-    res.status(500).json({ message: 'Failed to upload recorded lecture' });
+    console.error('CRITICAL CONTENT UPLOAD ERROR:', error);
+    res.status(500).json({ 
+      message: 'An internal server error occurred during upload', 
+      error: error.message,
+      stack: error.stack
+    });
   }
 };
 

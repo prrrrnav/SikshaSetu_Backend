@@ -30,10 +30,18 @@ router.delete('/resource/:id', authenticate, authorizeRoles('teacher'), resource
 router.get('/resources', authenticate, authorizeRoles('teacher'), resourceController.getResources);
 router.get('/resource-types', resourceController.getResourceTypes);
 
-router.post('/content/upload', authenticate, authorizeRoles('teacher'), uploadMiddleware.fields([
-  { name: 'slides', maxCount: 50 },
-  { name: 'audio', maxCount: 1 }
-]), contentController.uploadContent);
+router.post('/content/upload', authenticate, authorizeRoles('teacher'), (req, res, next) => {
+  uploadMiddleware.fields([
+    { name: 'slides', maxCount: 50 },
+    { name: 'audio', maxCount: 50 }
+  ])(req, res, (err) => {
+    if (err) {
+      console.error('Multer parsing error:', err);
+      return res.status(400).json({ message: 'File upload error: ' + err.message, error: err.code });
+    }
+    next();
+  });
+}, contentController.uploadContent);
 router.get('/content/:id', authenticate, authorizeRoles('teacher'), contentController.getContent);
 router.put('/content/:id', authenticate, authorizeRoles('teacher'), contentController.updateContent);
 router.delete('/content/:id', authenticate, authorizeRoles('teacher'), contentController.deleteContent);
